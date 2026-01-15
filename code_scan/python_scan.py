@@ -6,15 +6,18 @@ from typing import List
 
 from report import Evidence, Finding
 
-from code_scan.utils import CodeFinding, iter_python_files
+from code_scan.utils import iter_python_files
 
 
 PYTHON_RULES = [
-    ("PY-EVAL", re.compile(r"\b(eval|exec)\("), "Use of eval/exec can lead to code injection.", "High"),
-    ("PY-PICKLE", re.compile(r"pickle\.load\("), "Pickle deserialization can be unsafe.", "High"),
-    ("PY-YAML", re.compile(r"yaml\.load\("), "Use yaml.safe_load instead of yaml.load.", "Medium"),
-    ("PY-SUBPROCESS", re.compile(r"subprocess\.(Popen|call|run)\(.*shell=True"), "shell=True can lead to command injection.", "High"),
-    ("PY-RANDOM", re.compile(r"random\.(choice|randint|randrange|random)"), "random is not suitable for security tokens.", "Low"),
+    ("PY-EVAL", re.compile(r"\b(eval|exec)\("), "Использование eval/exec может привести к инъекциям кода.", "Высокая"),
+    ("PY-PICKLE", re.compile(r"pickle\.(load|loads)\("), "Десериализация pickle небезопасна.", "Высокая"),
+    ("PY-YAML", re.compile(r"yaml\.load\("), "Используйте yaml.safe_load вместо yaml.load.", "Средняя"),
+    ("PY-SUBPROCESS", re.compile(r"subprocess\.(Popen|call|run)\(.*shell=True"), "shell=True может привести к командной инъекции.", "Высокая"),
+    ("PY-RANDOM", re.compile(r"random\.(choice|randint|randrange|random)"), "random не подходит для токенов безопасности.", "Низкая"),
+    ("PY-VERIFY-FALSE", re.compile(r"verify\s*=\s*False"), "Отключена проверка TLS (verify=False).", "Высокая"),
+    ("PY-UNVERIFIED-SSL", re.compile(r"ssl\._create_unverified_context"), "Создается небезопасный SSL контекст.", "Высокая"),
+    ("PY-WEAK-HASH", re.compile(r"hashlib\.(md5|sha1)\("), "Используется слабая хэш-функция (md5/sha1).", "Низкая"),
 ]
 
 
@@ -34,7 +37,7 @@ def scan_python_code(root: Path) -> List[Finding]:
                             id=rule_id,
                             title=message,
                             severity=severity,
-                            confidence="Medium",
+                            confidence="Средняя",
                             evidence=[
                                 Evidence(
                                     description=message,
@@ -42,7 +45,7 @@ def scan_python_code(root: Path) -> List[Finding]:
                                     snippet=line.strip(),
                                 )
                             ],
-                            remediation="Review the usage and apply safer alternatives.",
+                            remediation="Проверьте использование и примените безопасные альтернативы.",
                             references=["https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html"],
                         )
                     )

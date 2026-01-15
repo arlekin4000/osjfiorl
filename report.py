@@ -7,6 +7,15 @@ from html import escape
 from typing import Any, Dict, Iterable, List, Optional
 
 
+SEVERITY_CLASS_MAP = {
+    "Критическая": "critical",
+    "Высокая": "high",
+    "Средняя": "medium",
+    "Низкая": "low",
+    "Инфо": "info",
+}
+
+
 @dataclass
 class Evidence:
     description: str
@@ -36,14 +45,15 @@ class AuditReport:
         return json.dumps(asdict(self), indent=2, ensure_ascii=False)
 
     def to_html(self) -> str:
-        def badge(text: str, cls: str) -> str:
+        def badge(text: str) -> str:
+            cls = SEVERITY_CLASS_MAP.get(text, "info")
             return f"<span class='badge {cls}'>{escape(text)}</span>"
 
         findings_html = "".join(
             f"""
             <div class="finding">
-              <h3>{escape(finding.title)} {badge(finding.severity, finding.severity.lower())}</h3>
-              <div class="meta">ID: {escape(finding.id)} · Confidence: {escape(finding.confidence)}</div>
+              <h3>{escape(finding.title)} {badge(finding.severity)}</h3>
+              <div class="meta">Идентификатор: {escape(finding.id)} · Уверенность: {escape(finding.confidence)}</div>
               <p>{escape(finding.remediation)}</p>
               <ul>
                 {''.join(f"<li><strong>{escape(ev.description)}</strong>: {escape(ev.location)}<pre>{escape(ev.snippet or '')}</pre></li>" for ev in finding.evidence)}
@@ -63,11 +73,11 @@ class AuditReport:
 
         return f"""
         <!doctype html>
-        <html lang="en">
+        <html lang="ru">
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>Security Audit Report</title>
+            <title>Отчет по безопасности</title>
             <style>
               body {{ font-family: Arial, sans-serif; background: #f6f7fb; color: #1f2937; margin: 0; }}
               header {{ background: #111827; color: white; padding: 24px; }}
@@ -86,15 +96,15 @@ class AuditReport:
           </head>
           <body>
             <header>
-              <h1>Security Audit Report</h1>
-              <div>Target: {escape(self.target)}</div>
-              <div>Generated at: {escape(self.generated_at)}</div>
+              <h1>Отчет по безопасности</h1>
+              <div>Цель: {escape(self.target)}</div>
+              <div>Сформировано: {escape(self.generated_at)}</div>
             </header>
             <div class="container">
-              <h2>Summary</h2>
+              <h2>Сводка</h2>
               <ul>{stats_html}</ul>
-              <h2>Findings</h2>
-              {findings_html or '<p>No findings.</p>'}
+              <h2>Наблюдения</h2>
+              {findings_html or '<p>Наблюдений не найдено.</p>'}
             </div>
           </body>
         </html>

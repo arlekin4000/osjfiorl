@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import ssl
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import List
 
@@ -46,15 +47,42 @@ def check_tls(host: str, port: int = 443) -> TLSResult:
         with socket.create_connection((host, port), timeout=5) as sock:
             with context.wrap_socket(sock, server_hostname=host) as ssock:
                 ssock.do_handshake()
+                cert = ssock.getpeercert()
+                not_after = cert.get("notAfter")
+                if not_after:
+                    try:
+                        expires = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+                    except ValueError:
+                        expires = None
+                    if expires and expires - datetime.utcnow() <= timedelta(days=30):
+                        findings.append(
+                            Finding(
+                                id="tls-cert-expiring",
+                                title="Срок действия TLS сертификата скоро истекает",
+                                severity="Средняя",
+                                confidence="Высокая",
+                                evidence=[
+                                    Evidence(
+                                        description="Дата окончания сертификата",
+                                        location=f"{host}:{port}",
+                                        snippet=expires.isoformat(),
+                                    )
+                                ],
+                                remediation="Обновите сертификат до истечения срока действия.",
+                                references=[
+                                    "https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Protection_Cheat_Sheet.html"
+                                ],
+                            )
+                        )
     except ssl.SSLCertVerificationError as exc:
         findings.append(
             Finding(
                 id="tls-cert-invalid",
-                title="TLS certificate validation failed",
-                severity="High",
-                confidence="High",
-                evidence=[Evidence(description="Certificate verification error", location=f"{host}:{port}", snippet=str(exc))],
-                remediation="Ensure the TLS certificate chain is valid and trusted.",
+                title="Ошибка проверки TLS сертификата",
+                severity="Высокая",
+                confidence="Высокая",
+                evidence=[Evidence(description="Ошибка проверки сертификата", location=f"{host}:{port}", snippet=str(exc))],
+                remediation="Убедитесь, что цепочка сертификатов корректна и доверена.",
                 references=["https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Protection_Cheat_Sheet.html"],
             )
         )
@@ -70,17 +98,17 @@ def check_tls(host: str, port: int = 443) -> TLSResult:
             findings.append(
                 Finding(
                     id="tls-legacy",
-                    title="Legacy TLS versions supported",
-                    severity="Medium",
-                    confidence="Medium",
+                    title="Поддерживаются устаревшие версии TLS",
+                    severity="Средняя",
+                    confidence="Средняя",
                     evidence=[
                         Evidence(
-                            description="Supported versions",
+                            description="Поддерживаемые версии",
                             location=f"{host}:{port}",
                             snippet=", ".join(supported),
                         )
                     ],
-                    remediation="Disable TLS 1.0/1.1 and require TLS 1.2+.",
+                    remediation="Отключите TLS 1.0/1.1 и требуйте TLS 1.2+.",
                     references=["https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Protection_Cheat_Sheet.html"],
                 )
             )
@@ -88,16 +116,16 @@ def check_tls(host: str, port: int = 443) -> TLSResult:
         findings.append(
             Finding(
                 id="tls-unreachable",
-                title="Unable to determine TLS versions",
-                severity="Info",
-                confidence="Low",
+                title="Не удалось определить версии TLS",
+                severity="Инфо",
+                confidence="Низкая",
                 evidence=[
                     Evidence(
-                        description="No TLS handshake succeeded",
+                        description="TLS рукопожатие не удалось",
                         location=f"{host}:{port}",
                     )
                 ],
-                remediation="Verify TLS configuration and network connectivity.",
+                remediation="Проверьте настройки TLS и сетевую доступность.",
                 references=[],
             )
         )

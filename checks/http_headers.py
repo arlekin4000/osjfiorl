@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http.cookies import SimpleCookie
 from typing import Dict, Iterable, List, Optional
+from urllib.parse import urlparse, urlunparse
 
 import requests
-from urllib.parse import urlparse, urlunparse
 
 from report import Evidence, Finding
 
 
 SECURITY_HEADERS = {
-    "content-security-policy": "CSP helps mitigate XSS and data injection.",
-    "strict-transport-security": "HSTS enforces HTTPS.",
-    "x-frame-options": "Protects against clickjacking.",
-    "x-content-type-options": "Prevents MIME-sniffing.",
-    "referrer-policy": "Controls referrer information leakage.",
-    "permissions-policy": "Restricts browser features.",
-    "cross-origin-opener-policy": "Isolates browsing context.",
-    "cross-origin-resource-policy": "Controls cross-origin resource sharing.",
-    "cross-origin-embedder-policy": "Ensures cross-origin isolation.",
+    "content-security-policy": "CSP снижает риск XSS и инъекций.",
+    "strict-transport-security": "HSTS принудительно включает HTTPS.",
+    "x-frame-options": "Защита от clickjacking.",
+    "x-content-type-options": "Предотвращает MIME sniffing.",
+    "referrer-policy": "Контроль утечек referrer.",
+    "permissions-policy": "Ограничение опасных возможностей браузера.",
+    "cross-origin-opener-policy": "Изоляция контекста окна.",
+    "cross-origin-resource-policy": "Контроль междоменных ресурсов.",
+    "cross-origin-embedder-policy": "Требования для cross-origin isolation.",
 }
 
 
@@ -33,9 +34,30 @@ def _has_csp_antipattern(csp: str) -> bool:
     return "unsafe-inline" in csp or "unsafe-eval" in csp or "*" in csp
 
 
+def _has_weak_referrer_policy(policy: str) -> bool:
+    policy = policy.lower()
+    return policy in {"unsafe-url", "no-referrer-when-downgrade", "origin-when-cross-origin"}
+
+
+def _has_weak_permissions_policy(policy: str) -> bool:
+    return "*" in policy
+
+
 def _is_potentially_sensitive_cookie(name: str) -> bool:
     name = name.lower()
     return any(token in name for token in ["session", "auth", "token", "jwt", "sid"])
+
+
+def _parse_hsts(value: str) -> Dict[str, str]:
+    parts = [part.strip() for part in value.split(";") if part.strip()]
+    data: Dict[str, str] = {}
+    for part in parts:
+        if "=" in part:
+            key, val = part.split("=", 1)
+            data[key.lower()] = val
+        else:
+            data[part.lower()] = ""
+    return data
 
 
 def check_headers(pages: Iterable[Dict[str, str]]) -> HeaderCheckResult:
@@ -51,16 +73,16 @@ def check_headers(pages: Iterable[Dict[str, str]]) -> HeaderCheckResult:
                 findings.append(
                     Finding(
                         id=f"header-{header}",
-                        title=f"Missing security header: {header}",
-                        severity="Low",
-                        confidence="High",
+                        title=f"Отсутствует заголовок безопасности: {header}",
+                        severity="Низкая",
+                        confidence="Высокая",
                         evidence=[
                             Evidence(
-                                description="Header missing",
-                                location="response headers",
+                                description="Заголовок отсутствует",
+                                location="заголовки ответа",
                             )
                         ],
-                        remediation=f"Set the {header} header. {description}",
+                        remediation=f"Установите заголовок {header}. {description}",
                         references=[
                             "https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html"
                         ],
@@ -72,17 +94,59 @@ def check_headers(pages: Iterable[Dict[str, str]]) -> HeaderCheckResult:
             findings.append(
                 Finding(
                     id="csp-unsafe",
-                    title="CSP allows unsafe directives",
-                    severity="Medium",
-                    confidence="Medium",
+                    title="CSP содержит небезопасные директивы",
+                    severity="Средняя",
+                    confidence="Средняя",
                     evidence=[
                         Evidence(
-                            description="CSP header",
+                            description="Заголовок CSP",
                             location="content-security-policy",
                             snippet=csp,
                         )
                     ],
-                    remediation="Avoid using 'unsafe-inline', 'unsafe-eval', or wildcard sources in CSP.",
+                    remediation="Исключите 'unsafe-inline', 'unsafe-eval' и wildcard-источники в CSP.",
+                    references=[
+                        "https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html"
+                    ],
+                )
+            )
+
+        if csp and "default-src" not in csp.lower():
+            findings.append(
+                Finding(
+                    id="csp-no-default-src",
+                    title="CSP без директивы default-src",
+                    severity="Средняя",
+                    confidence="Средняя",
+                    evidence=[
+                        Evidence(
+                            description="Заголовок CSP",
+                            location="content-security-policy",
+                            snippet=csp,
+                        )
+                    ],
+                    remediation="Добавьте default-src для базового ограничения источников.",
+                    references=[
+                        "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"
+                    ],
+                )
+            )
+
+        if csp and "object-src" in csp.lower() and "object-src 'none'" not in csp.lower():
+            findings.append(
+                Finding(
+                    id="csp-object-src",
+                    title="CSP допускает object-src",
+                    severity="Низкая",
+                    confidence="Средняя",
+                    evidence=[
+                        Evidence(
+                            description="Директива object-src",
+                            location="content-security-policy",
+                            snippet=csp,
+                        )
+                    ],
+                    remediation="Рекомендуется установить object-src 'none'.",
                     references=[
                         "https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html"
                     ],
@@ -94,18 +158,142 @@ def check_headers(pages: Iterable[Dict[str, str]]) -> HeaderCheckResult:
             findings.append(
                 Finding(
                     id="clickjacking-protection",
-                    title="Missing clickjacking protection",
-                    severity="Medium",
-                    confidence="Medium",
+                    title="Нет защиты от clickjacking",
+                    severity="Средняя",
+                    confidence="Средняя",
                     evidence=[
                         Evidence(
-                            description="No X-Frame-Options or frame-ancestors", location="response headers"
+                            description="Нет X-Frame-Options или frame-ancestors",
+                            location="заголовки ответа",
                             )
                     ],
-                    remediation="Add X-Frame-Options or CSP frame-ancestors directive.",
+                    remediation="Добавьте X-Frame-Options или директиву frame-ancestors в CSP.",
                     references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options"],
                 )
             )
+        elif xfo and xfo.lower() not in {"deny", "sameorigin"}:
+            findings.append(
+                Finding(
+                    id="xfo-invalid",
+                    title="Некорректное значение X-Frame-Options",
+                    severity="Низкая",
+                    confidence="Высокая",
+                    evidence=[
+                        Evidence(
+                            description="X-Frame-Options",
+                            location="x-frame-options",
+                            snippet=xfo,
+                        )
+                    ],
+                    remediation="Используйте значения DENY или SAMEORIGIN.",
+                    references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options"],
+                )
+            )
+
+        xcto = headers.get("x-content-type-options")
+        if xcto and xcto.lower() != "nosniff":
+            findings.append(
+                Finding(
+                    id="xcto-weak",
+                    title="Некорректный X-Content-Type-Options",
+                    severity="Низкая",
+                    confidence="Высокая",
+                    evidence=[
+                        Evidence(
+                            description="X-Content-Type-Options",
+                            location="x-content-type-options",
+                            snippet=xcto,
+                        )
+                    ],
+                    remediation="Установите X-Content-Type-Options: nosniff.",
+                    references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options"],
+                )
+            )
+
+        referrer = headers.get("referrer-policy")
+        if referrer and _has_weak_referrer_policy(referrer):
+            findings.append(
+                Finding(
+                    id="referrer-policy-weak",
+                    title="Слабая политика Referrer-Policy",
+                    severity="Низкая",
+                    confidence="Высокая",
+                    evidence=[
+                        Evidence(
+                            description="Referrer-Policy",
+                            location="referrer-policy",
+                            snippet=referrer,
+                        )
+                    ],
+                    remediation="Используйте stricter варианты, например strict-origin или no-referrer.",
+                    references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy"],
+                )
+            )
+
+        permissions = headers.get("permissions-policy")
+        if permissions and _has_weak_permissions_policy(permissions):
+            findings.append(
+                Finding(
+                    id="permissions-policy-weak",
+                    title="Слишком широкая Permissions-Policy",
+                    severity="Низкая",
+                    confidence="Средняя",
+                    evidence=[
+                        Evidence(
+                            description="Permissions-Policy",
+                            location="permissions-policy",
+                            snippet=permissions,
+                        )
+                    ],
+                    remediation="Ограничьте доступ к чувствительным возможностям браузера.",
+                    references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy"],
+                    )
+            )
+
+        hsts = headers.get("strict-transport-security")
+        if hsts:
+            hsts_data = _parse_hsts(hsts)
+            max_age = int(hsts_data.get("max-age", "0") or 0)
+            if max_age < 15_552_000:
+                findings.append(
+                    Finding(
+                        id="hsts-short",
+                        title="Слишком маленький max-age в HSTS",
+                        severity="Низкая",
+                        confidence="Средняя",
+                        evidence=[
+                            Evidence(
+                                description="Strict-Transport-Security",
+                                location="strict-transport-security",
+                                snippet=hsts,
+                            )
+                        ],
+                        remediation="Установите max-age минимум на 6 месяцев.",
+                        references=[
+                            "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security"
+                        ],
+                    )
+                )
+            if "includesubdomains" not in hsts_data:
+                findings.append(
+                    Finding(
+                        id="hsts-no-subdomains",
+                        title="HSTS без includeSubDomains",
+                        severity="Низкая",
+                        confidence="Средняя",
+                        evidence=[
+                            Evidence(
+                                description="Strict-Transport-Security",
+                                location="strict-transport-security",
+                                snippet=hsts,
+                            )
+                        ],
+                        remediation="Рассмотрите includeSubDomains, чтобы защитить поддомены.",
+                        references=[
+                            "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security"
+                        ],
+                    )
+                )
 
         acao = headers.get("access-control-allow-origin")
         acc = headers.get("access-control-allow-credentials")
@@ -113,51 +301,69 @@ def check_headers(pages: Iterable[Dict[str, str]]) -> HeaderCheckResult:
             findings.append(
                 Finding(
                     id="cors-credentials-wildcard",
-                    title="CORS allows credentials with wildcard origin",
-                    severity="High",
-                    confidence="High",
+                    title="CORS разрешает credentials при wildcard Origin",
+                    severity="Высокая",
+                    confidence="Высокая",
                     evidence=[
                         Evidence(
-                            description="CORS headers",
+                            description="CORS заголовки",
                             location="access-control-allow-origin",
                             snippet=f"ACAO: {acao}, ACAC: {acc}",
                         )
                     ],
-                    remediation="Avoid using Access-Control-Allow-Origin: * together with credentials.",
+                    remediation="Не используйте Access-Control-Allow-Origin: * вместе с credentials.",
                     references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS"],
                 )
             )
 
         set_cookie = headers.get("set-cookie")
         if set_cookie:
-            cookies = set_cookie.split(",")
-            for cookie in cookies:
-                parts = [p.strip() for p in cookie.split(";")]
-                name = parts[0].split("=")[0]
-                flags = {p.lower() for p in parts[1:]}
+            cookie = SimpleCookie()
+            cookie.load(set_cookie)
+            for name, morsel in cookie.items():
+                flags = {key.lower() for key, value in morsel.items() if value}
                 missing_flags = []
-                if "secure" not in flags:
+                if "secure" not in flags and not morsel["secure"]:
                     missing_flags.append("Secure")
-                if "httponly" not in flags:
+                if "httponly" not in flags and not morsel["httponly"]:
                     missing_flags.append("HttpOnly")
-                if not any(flag.startswith("samesite") for flag in flags):
+                if not morsel["samesite"]:
                     missing_flags.append("SameSite")
                 if missing_flags:
-                    severity = "Medium" if _is_potentially_sensitive_cookie(name) else "Low"
+                    severity = "Средняя" if _is_potentially_sensitive_cookie(name) else "Низкая"
                     findings.append(
                         Finding(
                             id="cookie-flags",
-                            title=f"Cookie missing security flags: {name}",
+                            title=f"Cookie без защитных флагов: {name}",
                             severity=severity,
-                            confidence="Medium",
+                            confidence="Средняя",
                             evidence=[
                                 Evidence(
-                                    description="Set-Cookie header",
+                                    description="Set-Cookie",
                                     location="set-cookie",
-                                    snippet=cookie,
+                                    snippet=set_cookie,
                                 )
                             ],
-                            remediation="Set Secure, HttpOnly, and SameSite on sensitive cookies.",
+                            remediation="Установите Secure, HttpOnly и SameSite для чувствительных cookie.",
+                            references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies"],
+                        )
+                    )
+
+                if morsel["samesite"].lower() == "none" and not morsel["secure"]:
+                    findings.append(
+                        Finding(
+                            id="cookie-samesite-none",
+                            title=f"SameSite=None без Secure: {name}",
+                            severity="Средняя",
+                            confidence="Высокая",
+                            evidence=[
+                                Evidence(
+                                    description="Set-Cookie",
+                                    location="set-cookie",
+                                    snippet=set_cookie,
+                                )
+                            ],
+                            remediation="При SameSite=None обязательно используйте Secure.",
                             references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies"],
                         )
                     )
@@ -167,17 +373,17 @@ def check_headers(pages: Iterable[Dict[str, str]]) -> HeaderCheckResult:
             findings.append(
                 Finding(
                     id="version-disclosure",
-                    title="Server version disclosure",
-                    severity="Info",
-                    confidence="Medium",
+                    title="Раскрытие версии сервера",
+                    severity="Инфо",
+                    confidence="Средняя",
                     evidence=[
                         Evidence(
-                            description="Server header",
+                            description="Server/X-Powered-By",
                             location="server/x-powered-by",
                             snippet=server,
                         )
                     ],
-                    remediation="Consider removing or minimizing version information in headers.",
+                    remediation="Рекомендуется убрать или минимизировать версии в заголовках.",
                     references=["https://cheatsheetseries.owasp.org/cheatsheets/Information_Exposure.html"],
                 )
             )
@@ -190,11 +396,11 @@ def check_https_redirect(base_url: str, session: requests.Session, timeout: floa
     if parsed.scheme != "https":
         return Finding(
             id="https-missing",
-            title="Target does not use HTTPS",
-            severity="High",
-            confidence="High",
-            evidence=[Evidence(description="URL scheme", location=base_url)],
-            remediation="Serve the application over HTTPS and redirect HTTP to HTTPS.",
+            title="Целевой ресурс не использует HTTPS",
+            severity="Высокая",
+            confidence="Высокая",
+            evidence=[Evidence(description="Схема URL", location=base_url)],
+            remediation="Используйте HTTPS и перенаправляйте HTTP на HTTPS.",
             references=["https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Protection_Cheat_Sheet.html"],
         )
 
@@ -210,10 +416,10 @@ def check_https_redirect(base_url: str, session: requests.Session, timeout: floa
 
     return Finding(
         id="https-redirect-missing",
-        title="HTTPS redirect not enforced",
-        severity="Medium",
-        confidence="Medium",
-        evidence=[Evidence(description="HTTP response", location=http_url, snippet=f"Status {response.status_code}")],
-        remediation="Redirect HTTP traffic to HTTPS with a 301/308 response.",
+        title="Нет перенаправления с HTTP на HTTPS",
+        severity="Средняя",
+        confidence="Средняя",
+        evidence=[Evidence(description="HTTP ответ", location=http_url, snippet=f"Статус {response.status_code}")],
+        remediation="Настройте редирект HTTP->HTTPS (301/308).",
         references=["https://developer.mozilla.org/en-US/docs/Web/HTTP/Redirections"],
     )

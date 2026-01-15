@@ -10,7 +10,13 @@ from report import Evidence, Finding
 
 SENSITIVE_PATHS = [
     "/.env",
+    "/.env.bak",
     "/.git/HEAD",
+    "/.htaccess",
+    "/.htpasswd",
+    "/backup",
+    "/config",
+    "/db.sql",
     "/phpinfo.php",
     "/debug",
     "/admin",
@@ -45,17 +51,17 @@ def check_directory_listing(base_url: str, session: requests.Session, timeout: f
                 findings.append(
                     Finding(
                         id="dir-listing",
-                        title="Possible directory listing enabled",
-                        severity="Low",
-                        confidence="Medium",
+                        title="Возможен открытый листинг директорий",
+                        severity="Низкая",
+                        confidence="Средняя",
                         evidence=[
                             Evidence(
-                                description="Directory listing pattern",
+                                description="Признак листинга директорий",
                                 location=base_url,
                                 snippet=pattern,
                             )
                         ],
-                        remediation="Disable directory listing on web servers.",
+                        remediation="Отключите листинг директорий на веб-сервере.",
                         references=["https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"],
                     )
                 )
@@ -77,17 +83,17 @@ def check_sensitive_paths(base_url: str, session: requests.Session, timeout: flo
             findings.append(
                 Finding(
                     id="sensitive-path",
-                    title="Potentially sensitive path accessible",
-                    severity="Medium",
-                    confidence="Medium",
+                    title="Доступен потенциально чувствительный путь",
+                    severity="Средняя",
+                    confidence="Средняя",
                     evidence=[
                         Evidence(
-                            description="Accessible path",
+                            description="Доступный путь",
                             location=url,
-                            snippet=f"Status {response.status_code}",
+                            snippet=f"Статус {response.status_code}",
                         )
                     ],
-                    remediation="Restrict access to sensitive endpoints or remove them from public exposure.",
+                    remediation="Ограничьте доступ к чувствительным путям или удалите их из публичной зоны.",
                     references=["https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html"],
                 )
             )

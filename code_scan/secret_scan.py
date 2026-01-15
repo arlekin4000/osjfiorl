@@ -22,17 +22,17 @@ def scan_secrets(root: Path) -> List[Finding]:
                 findings.append(
                     Finding(
                         id="secret-detected",
-                        title="Potential secret in code",
-                        severity="High",
-                        confidence="Medium",
+                        title="Возможный секрет в коде",
+                        severity="Высокая",
+                        confidence="Средняя",
                         evidence=[
                             Evidence(
-                                description=f"Matched pattern: {pattern}",
+                                description=f"Совпадение по шаблону: {pattern}",
                                 location=f"{file_path}:{line_no}",
                                 snippet=redact_secret(secret),
                             )
                         ],
-                        remediation="Remove secrets from source code and rotate exposed credentials.",
+                        remediation="Удалите секреты из кода и смените компрометированные учетные данные.",
                         references=[
                             "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html"
                         ],

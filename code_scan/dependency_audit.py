@@ -9,6 +9,16 @@ from typing import List
 from report import Evidence, Finding
 
 
+SEVERITY_MAP = {
+    "critical": "Критическая",
+    "high": "Высокая",
+    "moderate": "Средняя",
+    "medium": "Средняя",
+    "low": "Низкая",
+    "info": "Инфо",
+}
+
+
 def audit_python_deps(root: Path) -> List[Finding]:
     findings: List[Finding] = []
     requirements = root / "requirements.txt"
@@ -27,17 +37,17 @@ def audit_python_deps(root: Path) -> List[Finding]:
                         findings.append(
                             Finding(
                                 id="pip-audit",
-                                title=f"Dependency vulnerability: {vuln.get('name')}",
-                                severity="Medium",
-                                confidence="High",
+                                title=f"Уязвимость зависимости: {vuln.get('name')}",
+                                severity="Средняя",
+                                confidence="Высокая",
                                 evidence=[
                                     Evidence(
-                                        description="pip-audit report",
+                                        description="Отчет pip-audit",
                                         location=str(requirements),
                                         snippet=str(vuln.get("id")),
                                     )
                                 ],
-                                remediation="Upgrade the dependency to a fixed version.",
+                                remediation="Обновите зависимость до исправленной версии.",
                                 references=vuln.get("aliases", []),
                             )
                         )
@@ -47,17 +57,17 @@ def audit_python_deps(root: Path) -> List[Finding]:
             findings.append(
                 Finding(
                     id="pip-audit-missing",
-                    title="pip-audit not available",
-                    severity="Info",
-                    confidence="High",
+                    title="pip-audit недоступен",
+                    severity="Инфо",
+                    confidence="Высокая",
                     evidence=[
                         Evidence(
-                            description="Dependency audit skipped",
+                            description="Аудит зависимостей пропущен",
                             location=str(requirements),
-                            snippet="pip-audit not installed",
+                            snippet="pip-audit не установлен",
                         )
                     ],
-                    remediation="Install pip-audit and re-run for dependency vulnerability scanning.",
+                    remediation="Установите pip-audit и повторите запуск для проверки зависимостей.",
                     references=["https://pypi.org/project/pip-audit/"],
                 )
             )
@@ -85,17 +95,17 @@ def audit_node_deps(root: Path) -> List[Finding]:
                         findings.append(
                             Finding(
                                 id="npm-audit",
-                                title=f"Dependency vulnerability: {advisory.get('module_name')}",
-                                severity=str(advisory.get("severity", "medium")).title(),
-                                confidence="High",
+                                title=f"Уязвимость зависимости: {advisory.get('module_name')}",
+                                severity=SEVERITY_MAP.get(str(advisory.get("severity", "medium")).lower(), "Средняя"),
+                                confidence="Высокая",
                                 evidence=[
                                     Evidence(
-                                        description="npm audit report",
+                                        description="Отчет npm audit",
                                         location=str(package_lock),
                                         snippet=str(advisory.get("title")),
                                     )
                                 ],
-                                remediation="Upgrade the dependency to a fixed version.",
+                                remediation="Обновите зависимость до исправленной версии.",
                                 references=[advisory.get("url", "")],
                             )
                         )
@@ -105,17 +115,17 @@ def audit_node_deps(root: Path) -> List[Finding]:
             findings.append(
                 Finding(
                     id="npm-audit-missing",
-                    title="npm audit not available",
-                    severity="Info",
-                    confidence="High",
+                    title="npm audit недоступен",
+                    severity="Инфо",
+                    confidence="Высокая",
                     evidence=[
                         Evidence(
-                            description="Dependency audit skipped",
+                            description="Аудит зависимостей пропущен",
                             location=str(package_lock),
-                            snippet="npm not installed",
+                            snippet="npm не установлен",
                         )
                     ],
-                    remediation="Install npm and run npm audit for dependency vulnerability scanning.",
+                    remediation="Установите npm и выполните npm audit для проверки зависимостей.",
                     references=["https://docs.npmjs.com/cli/v9/commands/npm-audit"],
                 )
             )
