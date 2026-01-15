@@ -82,14 +82,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--disable-code", action="store_true", help="Отключить анализ кода")
     parser.add_argument("--dry-run", action="store_true", help="Не выполнять сетевые запросы")
     parser.add_argument("--log-level", default="INFO", help="Уровень логирования")
-    if not argv:
-        parser.print_help()
-        parser.exit(2, "\nошибка: требуется указать --url\n")
-    args = parser.parse_args(argv)
-    if not args.url:
-        parser.print_help()
-        parser.exit(2, "\nошибка: требуется указать --url\n")
-    return args
+    return parser.parse_args(argv)
 
 
 def configure_logging(level: str) -> None:
@@ -205,6 +198,14 @@ def write_outputs(report: AuditReport, args: argparse.Namespace) -> None:
 
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
+    if not args.url:
+        try:
+            args.url = input("Введите URL для аудита (например https://example.com): ").strip()
+        except EOFError:
+            args.url = ""
+        if not args.url:
+            print("Ошибка: URL не указан. Используйте --url или введите ссылку при запуске.")
+            return 2
     configure_logging(args.log_level)
     report = run_audit(args)
     print_report(report)
